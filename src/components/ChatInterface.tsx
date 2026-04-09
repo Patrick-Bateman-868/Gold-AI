@@ -132,12 +132,12 @@ export default function ChatInterface({ mentor, language, onBack }: ChatInterfac
       };
 
       setMessages(prev => [...prev, aiMessage]);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        content: t.error,
+        content: error?.message || t.error,
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMessage]);

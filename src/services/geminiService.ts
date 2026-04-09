@@ -1,8 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { MentorRole, Language } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
-
 const CONTEXT_KAZAKHSTAN = `
 Context: You are working with students in rural regions of Kazakhstan (auls). 
 There is a severe shortage of qualified teachers and mentors there. 
@@ -84,20 +82,42 @@ export async function getMentorResponse(
   message: string, 
   history: { role: 'user' | 'model', parts: { text: string }[] }[] = []
 ) {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is not configured.");
+  const apiKey = process.env.GEMINI_API_KEY;
+  
+  if (!apiKey || apiKey === "undefined" || apiKey === "") {
+    throw new Error("API_KEY_MISSING: GEMINI_API_KEY is not configured. Please check your .env file and ensure the key is provided.");
   }
 
+  const ai = new GoogleGenAI({ apiKey });
   const model = "gemini-3-flash-preview";
   
-  const chat = ai.chats.create({
-    model,
-    config: {
-      systemInstruction: `${SYSTEM_PROMPTS[role]}\n\n${LANGUAGE_INSTRUCTION[language]}`,
-    },
-    history: history,
-  });
+  try {
+    const chat = ai.chats.create({
+      model,
+      config: {
+        systemInstruction: `${SYSTEM_PROMPTS[role]}\n\n${LANGUAGE_INSTRUCTION[language]}`,
+      },
+      history: history,
+    });
 
-  const result = await chat.sendMessage({ message });
-  return result.text;
+    const result = await chat.sendMessage({ message });
+    
+    if (!result || !result.text) {
+      throw new Error("EMPTY_RESPONSE: The AI returned an empty response.");
+    }
+    
+    return result.text;
+  } catch (error: any) {
+    console.error("Gemini API Error:", error);
+    
+    if (error?.message?.includes("API_KEY_INVALID") || error?.status === 403) {
+      throw new Error("API_KEY_INVALID: Your API key is invalid or has expired.");
+    }
+    
+    if (error?.message?.includes("quota") || error?.status === 429) {
+      throw new Error("QUOTA_EXCEEDED: You have exceeded your API quota.");
+    }
+
+    throw new Error(`AI_ERROR: ${error?.message || "Unknown error occurred while communicating with Gemini."}`);
+  }
 }
