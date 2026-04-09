@@ -82,21 +82,26 @@ export async function getMentorResponse(
   message: string, 
   history: { role: 'user' | 'model', parts: { text: string }[] }[] = []
 ) {
-  // Use a more robust way to access the API key that works in both Vite and Node-like environments
-  const apiKey = process.env.GEMINI_API_KEY;
+  // Vite's 'define' will replace process.env.GEMINI_API_KEY with the string value from .env
+  let apiKey = process.env.GEMINI_API_KEY;
   
-  if (!apiKey || apiKey === "undefined" || apiKey === "" || apiKey === "MY_GEMINI_API_KEY") {
-    throw new Error("ОШИБКА: API ключ не найден. Убедитесь, что вы создали файл .env и добавили туда GEMINI_API_KEY=ваш_ключ. (Текущее значение: " + (apiKey || "пусто") + ")");
+  // Fallback to import.meta.env if defined (standard Vite way)
+  if (!apiKey || apiKey === "undefined") {
+    apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY || (import.meta as any).env.GEMINI_API_KEY;
   }
 
-  if (!apiKey.startsWith("AIza")) {
-    throw new Error("ОШИБКА: Ваш API ключ выглядит некорректно (он должен начинаться с 'AIza'). Проверьте файл .env.");
+  // Clean the key
+  const finalKey = String(apiKey || "").trim().replace(/^["']|["']$/g, '');
+  
+  console.log("[Gemini Service] API Key detected:", !!finalKey && finalKey !== "undefined" && finalKey !== "MY_GEMINI_API_KEY");
+
+  if (!finalKey || finalKey === "undefined" || finalKey === "" || finalKey === "MY_GEMINI_API_KEY") {
+    throw new Error("ОШИБКА: API ключ не найден в системе. Убедитесь, что файл .env создан, содержит GEMINI_API_KEY=ваш_ключ и вы ПЕРЕЗАПУСТИЛИ сервер (npm run dev).");
   }
 
-  const ai = new GoogleGenAI({ apiKey });
-  // Using 'gemini-1.5-flash' as it is the most widely available model.
-  // We include the 'models/' prefix to ensure compatibility across all environments.
-  const model = "models/gemini-1.5-flash";
+  const ai = new GoogleGenAI({ apiKey: finalKey });
+  // Using the most standard name for maximum compatibility
+  const model = "gemini-1.5-flash";
   
   try {
     const chat = ai.chats.create({
@@ -110,28 +115,42 @@ export async function getMentorResponse(
     const result = await chat.sendMessage({ message });
     
     if (!result || !result.text) {
-      throw new Error("ОШИБКА: ИИ вернул пустой ответ. Попробуйте еще раз.");
+      throw new Error("ОШИБКА: ИИ вернул пустой ответ.");
     }
     
     return result.text;
   } catch (error: any) {
-    console.error("Gemini API Error Details:", error);
+    console.error("Gemini API Error:", error);
     
     const errorMsg = error?.message || "";
-    const status = error?.status || error?.status_code || "Unknown Status";
+    const status = error?.status || error?.status_code || "Unknown";
     
-    if (errorMsg.includes("API_KEY_INVALID") || errorMsg.includes("403")) {
-      throw new Error(`ОШИБКА (403): Неверный API ключ. Проверьте его в Google AI Studio. (Текущий ключ: ${apiKey.substring(0, 6)}...)`);
+    // Fallback logic if the primary model is not found
+    if (errorMsg.includes("model not found") || status === 404) {
+      console.log("[Gemini Service] Falling back to gemini-1.5-flash-latest...");
+      try {
+        const fallbackChat = ai.chats.create({
+          model: "gemini-1.5-flash-latest",
+          config: {
+            systemInstruction: `${SYSTEM_PROMPTS[role]}\n\n${LANGUAGE_INSTRUCTION[language]}`,
+          },
+          history: history,
+        });
+        const fallbackResult = await fallbackChat.sendMessage({ message });
+        return fallbackResult.text;
+      } catch (fallbackError: any) {
+        throw new Error(`ОШИБКА (404): Модель не найдена. Попробуйте использовать другой API ключ или проверьте регион вашего аккаунта. (Тех. детали: ${fallbackError.message})`);
+      }
     }
     
-    if (errorMsg.includes("quota") || errorMsg.includes("429")) {
-      throw new Error("ОШИБКА (429): Превышена квота запросов. Подождите 1 минуту или используйте другой ключ.");
+    if (errorMsg.includes("API_KEY_INVALID") || status === 403) {
+      throw new Error(`ОШИБКА (403): Неверный API ключ. Проверьте его в Google AI Studio. Ключ начинается на: ${finalKey.substring(0, 4)}...`);
+    }
+    
+    if (errorMsg.includes("quota") || status === 429) {
+      throw new Error("ОШИБКА (429): Лимит запросов исчерпан. Подождите минуту.");
     }
 
-    if (errorMsg.includes("model not found") || errorMsg.includes("404")) {
-      throw new Error(`ОШИБКА (404): Модель '${model}' не найдена. Попробуйте использовать другой API ключ или проверьте регион вашего аккаунта.`);
-    }
-
-    throw new Error(`ОШИБКА ИИ [${status}]: ${errorMsg || "Неизвестная ошибка при связи с Gemini."}`);
+    throw new Error(`ОШИБКА ИИ [${status}]: ${errorMsg || "Ошибка связи с сервером Google."}`);
   }
 }
