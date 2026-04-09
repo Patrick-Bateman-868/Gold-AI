@@ -1,6 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { MentorRole, Language } from "../types";
 
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+
 const CONTEXT_KAZAKHSTAN = `
 Context: You are working with students in rural regions of Kazakhstan (auls). 
 There is a severe shortage of qualified teachers and mentors there. 
@@ -15,12 +17,28 @@ Format the links clearly.
 `;
 
 const DIAGRAM_INSTRUCTION = `
-IMPORTANT: You can draw diagrams and schemes using Mermaid.js syntax. 
-When explaining hardware connections, code flow, or team structures, always include a Mermaid diagram.
-Wrap the mermaid code in triple backticks with 'mermaid' language identifier.
+IMPORTANT: You MUST visualize complex concepts using Mermaid.js diagrams. 
+- Use 'graph TD' for flowcharts and logic.
+- Use 'sequenceDiagram' for interactions.
+- Use 'classDiagram' for code structures.
+- Use 'stateDiagram-v2' for robot states.
+- Use 'pie' for data distribution.
+Always wrap mermaid code in triple backticks with 'mermaid' language identifier. 
+Ensure the syntax is valid and easy to read.
+`;
+
+const INTELLIGENCE_INSTRUCTION = `
+YOU ARE AN ELITE AI MENTOR. 
+- Be proactive: don't just answer, anticipate the next question.
+- Be deep: explain the "why" behind the "how".
+- Use analogies: compare complex robotics concepts to everyday things.
+- Be concise but thorough.
+- If you see a student struggling, offer a simpler explanation or a different perspective.
+- Use formatting (bold, lists, headers) to make your answers highly readable.
 `;
 
 const REGULATOR_INSTRUCTION = `
+${INTELLIGENCE_INSTRUCTION}
 YOU ARE A LEARNING REGULATOR. 
 Your task is to guide the student through the levels defined in their roadmap.
 1. Start by assessing their current knowledge for the active level.
@@ -56,6 +74,8 @@ Focus on:
   team: `You are the Team & Management Mentor for Gold Students Club.
 Your goal is to help students organize their teams and distribute roles effectively.
 ${CONTEXT_KAZAKHSTAN}
+${INTELLIGENCE_INSTRUCTION}
+${DIAGRAM_INSTRUCTION}
 Focus on:
 - Role distribution (Captain, Lead Programmer, Builder, Outreach).
 - Project management (Engineering Notebook, timelines).
@@ -64,6 +84,8 @@ Focus on:
   career: `You are the Career Growth Mentor for Gold Students Club.
 Your goal is to guide students towards a successful future in STEM.
 ${CONTEXT_KAZAKHSTAN}
+${INTELLIGENCE_INSTRUCTION}
+${DIAGRAM_INSTRUCTION}
 Focus on:
 - Internships, scholarships, and universities.
 - Building a portfolio and resume.
@@ -82,75 +104,20 @@ export async function getMentorResponse(
   message: string, 
   history: { role: 'user' | 'model', parts: { text: string }[] }[] = []
 ) {
-  // Vite's 'define' will replace process.env.GEMINI_API_KEY with the string value from .env
-  let apiKey = process.env.GEMINI_API_KEY;
-  
-  // Fallback to import.meta.env if defined (standard Vite way)
-  if (!apiKey || apiKey === "undefined") {
-    apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY || (import.meta as any).env.GEMINI_API_KEY;
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not configured.");
   }
 
-  // Clean the key
-  const finalKey = String(apiKey || "").trim().replace(/^["']|["']$/g, '');
+  const model = "gemini-3.1-pro-preview";
   
-  console.log("[Gemini Service] API Key detected:", !!finalKey && finalKey !== "undefined" && finalKey !== "MY_GEMINI_API_KEY");
+  const chat = ai.chats.create({
+    model,
+    config: {
+      systemInstruction: `${SYSTEM_PROMPTS[role]}\n\n${LANGUAGE_INSTRUCTION[language]}`,
+    },
+    history: history,
+  });
 
-  if (!finalKey || finalKey === "undefined" || finalKey === "" || finalKey === "MY_GEMINI_API_KEY") {
-    throw new Error("ОШИБКА: API ключ не найден в системе. Убедитесь, что файл .env создан, содержит GEMINI_API_KEY=ваш_ключ и вы ПЕРЕЗАПУСТИЛИ сервер (npm run dev).");
-  }
-
-  const ai = new GoogleGenAI({ apiKey: finalKey });
-  // Using the most standard name for maximum compatibility
-  const model = "gemini-1.5-flash";
-  
-  try {
-    const chat = ai.chats.create({
-      model,
-      config: {
-        systemInstruction: `${SYSTEM_PROMPTS[role]}\n\n${LANGUAGE_INSTRUCTION[language]}`,
-      },
-      history: history,
-    });
-
-    const result = await chat.sendMessage({ message });
-    
-    if (!result || !result.text) {
-      throw new Error("ОШИБКА: ИИ вернул пустой ответ.");
-    }
-    
-    return result.text;
-  } catch (error: any) {
-    console.error("Gemini API Error:", error);
-    
-    const errorMsg = error?.message || "";
-    const status = error?.status || error?.status_code || "Unknown";
-    
-    // Fallback logic if the primary model is not found
-    if (errorMsg.includes("model not found") || status === 404) {
-      console.log("[Gemini Service] Falling back to gemini-1.5-flash-latest...");
-      try {
-        const fallbackChat = ai.chats.create({
-          model: "gemini-1.5-flash-latest",
-          config: {
-            systemInstruction: `${SYSTEM_PROMPTS[role]}\n\n${LANGUAGE_INSTRUCTION[language]}`,
-          },
-          history: history,
-        });
-        const fallbackResult = await fallbackChat.sendMessage({ message });
-        return fallbackResult.text;
-      } catch (fallbackError: any) {
-        throw new Error(`ОШИБКА (404): Модель не найдена. Попробуйте использовать другой API ключ или проверьте регион вашего аккаунта. (Тех. детали: ${fallbackError.message})`);
-      }
-    }
-    
-    if (errorMsg.includes("API_KEY_INVALID") || status === 403) {
-      throw new Error(`ОШИБКА (403): Неверный API ключ. Проверьте его в Google AI Studio. Ключ начинается на: ${finalKey.substring(0, 4)}...`);
-    }
-    
-    if (errorMsg.includes("quota") || status === 429) {
-      throw new Error("ОШИБКА (429): Лимит запросов исчерпан. Подождите минуту.");
-    }
-
-    throw new Error(`ОШИБКА ИИ [${status}]: ${errorMsg || "Ошибка связи с сервером Google."}`);
-  }
+  const result = await chat.sendMessage({ message });
+  return result.text;
 }
