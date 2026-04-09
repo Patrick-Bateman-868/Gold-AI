@@ -94,8 +94,9 @@ export async function getMentorResponse(
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  // Using a more stable model name for better compatibility
-  const model = "gemini-1.5-flash";
+  // Using 'gemini-1.5-flash' as it is the most widely available model.
+  // We include the 'models/' prefix to ensure compatibility across all environments.
+  const model = "models/gemini-1.5-flash";
   
   try {
     const chat = ai.chats.create({
@@ -114,22 +115,23 @@ export async function getMentorResponse(
     
     return result.text;
   } catch (error: any) {
-    console.error("Gemini API Error:", error);
+    console.error("Gemini API Error Details:", error);
     
     const errorMsg = error?.message || "";
+    const status = error?.status || error?.status_code || "Unknown Status";
     
     if (errorMsg.includes("API_KEY_INVALID") || errorMsg.includes("403")) {
-      throw new Error("ОШИБКА: Неверный API ключ. Проверьте его в Google AI Studio.");
+      throw new Error(`ОШИБКА (403): Неверный API ключ. Проверьте его в Google AI Studio. (Текущий ключ: ${apiKey.substring(0, 6)}...)`);
     }
     
     if (errorMsg.includes("quota") || errorMsg.includes("429")) {
-      throw new Error("ОШИБКА: Превышена квота (лимит) запросов. Подождите немного или используйте другой ключ.");
+      throw new Error("ОШИБКА (429): Превышена квота запросов. Подождите 1 минуту или используйте другой ключ.");
     }
 
     if (errorMsg.includes("model not found") || errorMsg.includes("404")) {
-      throw new Error("ОШИБКА: Модель не найдена. Попробуйте обновить страницу.");
+      throw new Error(`ОШИБКА (404): Модель '${model}' не найдена. Попробуйте использовать другой API ключ или проверьте регион вашего аккаунта.`);
     }
 
-    throw new Error(`ОШИБКА ИИ: ${error?.message || "Неизвестная ошибка при связи с Gemini."}`);
+    throw new Error(`ОШИБКА ИИ [${status}]: ${errorMsg || "Неизвестная ошибка при связи с Gemini."}`);
   }
 }
