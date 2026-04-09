@@ -82,14 +82,20 @@ export async function getMentorResponse(
   message: string, 
   history: { role: 'user' | 'model', parts: { text: string }[] }[] = []
 ) {
+  // Use a more robust way to access the API key that works in both Vite and Node-like environments
   const apiKey = process.env.GEMINI_API_KEY;
   
-  if (!apiKey || apiKey === "undefined" || apiKey === "") {
-    throw new Error("API_KEY_MISSING: GEMINI_API_KEY is not configured. Please check your .env file and ensure the key is provided.");
+  if (!apiKey || apiKey === "undefined" || apiKey === "" || apiKey === "MY_GEMINI_API_KEY") {
+    throw new Error("ОШИБКА: API ключ не найден. Убедитесь, что вы создали файл .env и добавили туда GEMINI_API_KEY=ваш_ключ. (Текущее значение: " + (apiKey || "пусто") + ")");
+  }
+
+  if (!apiKey.startsWith("AIza")) {
+    throw new Error("ОШИБКА: Ваш API ключ выглядит некорректно (он должен начинаться с 'AIza'). Проверьте файл .env.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  const model = "gemini-3-flash-preview";
+  // Using a more stable model name for better compatibility
+  const model = "gemini-1.5-flash";
   
   try {
     const chat = ai.chats.create({
@@ -103,21 +109,27 @@ export async function getMentorResponse(
     const result = await chat.sendMessage({ message });
     
     if (!result || !result.text) {
-      throw new Error("EMPTY_RESPONSE: The AI returned an empty response.");
+      throw new Error("ОШИБКА: ИИ вернул пустой ответ. Попробуйте еще раз.");
     }
     
     return result.text;
   } catch (error: any) {
     console.error("Gemini API Error:", error);
     
-    if (error?.message?.includes("API_KEY_INVALID") || error?.status === 403) {
-      throw new Error("API_KEY_INVALID: Your API key is invalid or has expired.");
+    const errorMsg = error?.message || "";
+    
+    if (errorMsg.includes("API_KEY_INVALID") || errorMsg.includes("403")) {
+      throw new Error("ОШИБКА: Неверный API ключ. Проверьте его в Google AI Studio.");
     }
     
-    if (error?.message?.includes("quota") || error?.status === 429) {
-      throw new Error("QUOTA_EXCEEDED: You have exceeded your API quota.");
+    if (errorMsg.includes("quota") || errorMsg.includes("429")) {
+      throw new Error("ОШИБКА: Превышена квота (лимит) запросов. Подождите немного или используйте другой ключ.");
     }
 
-    throw new Error(`AI_ERROR: ${error?.message || "Unknown error occurred while communicating with Gemini."}`);
+    if (errorMsg.includes("model not found") || errorMsg.includes("404")) {
+      throw new Error("ОШИБКА: Модель не найдена. Попробуйте обновить страницу.");
+    }
+
+    throw new Error(`ОШИБКА ИИ: ${error?.message || "Неизвестная ошибка при связи с Gemini."}`);
   }
 }
