@@ -108,7 +108,7 @@ export async function getMentorResponse(
     throw new Error("GEMINI_API_KEY is not configured.");
   }
 
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-3-flash-preview";
   
   const chat = ai.chats.create({
     model,
