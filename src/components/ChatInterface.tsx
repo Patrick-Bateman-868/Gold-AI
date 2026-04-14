@@ -151,10 +151,19 @@ export default function ChatInterface({ mentor, language, onBack }: ChatInterfac
       if (prev.includes(id)) return prev;
       const newCompleted = [...prev, id];
       
-      if (newCompleted.length === 3 && !prev.includes(3)) {
-        // Hub message is now handled by the AI via REGULATOR_INSTRUCTION, 
-        // but we can keep a fallback or UI trigger if needed.
-      }
+      // Show gamification feedback
+      const xpEarned = id * 1000;
+      const meritEarned = id * 50;
+      
+      const feedbackMessage: Message = {
+        id: `feedback-${Date.now()}`,
+        role: 'model',
+        content: `🎉 **LEVEL ${id} COMPLETE!** \n\n You earned **${xpEarned} XP** and **${meritEarned} Merit points**! Keep going!`,
+        timestamp: Date.now()
+      };
+      
+      setMessages(prevMsgs => [...prevMsgs, feedbackMessage]);
+
       return newCompleted;
     });
   };
